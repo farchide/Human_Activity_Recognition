@@ -1,0 +1,132 @@
+---
+title: "Human Activity Recognition"
+author: "Farshid Mahdavipour"
+date: "Friday, January 09, 2015"
+output: html_document
+---
+<h2>Introduction</h2>
+The human activity recognition research has traditionally focused on discriminating between different activities, i.e. to predict "which" activity was performed at a specific point in time (like with the Daily Living Activities dataset above). The approach we propose for the Weight Lifting Exercises dataset is to investigate "how (well)" an activity was performed by the wearer. The "how (well)" investigation has only received little attention so far.
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). you can learn more about this experiment here: http://groupware.les.inf.puc-rio.br/har
+The goal of this paper is to develop a Machine Learning Algorithm to be able to predict and identify the right movement of the body by receiving the sensor's data when doing weight lifting excercices. 
+
+<h2>Developing Machine Learning Algorithm</h2>
+loading required libraries
+```{r results="hide",warning=FALSE}
+library(caret)
+library(ggplot2)
+library(gbm)
+library(plyr)
+
+```
+
+<h2>Getting and Cleaning Data</h2>
+First, we have to load data into R
+Loading Data
+```{r results="hide",warning=FALSE}
+training <- read.csv("pml-training.csv", na.strings = c("","NA","#DIV/0!"),stringsAsFactors =F,blank.lines.skip=T)
+testing <- read.csv("pml-testing.csv", na.strings = c("","NA","#DIV/0!"),stringsAsFactors =F)
+
+```
+we have also replace the null values with NA
+then we do some cleaning on the data. because we have so many columns in the train and test datasets with null values, we will delete those columns to prevent any future problem
+
+```{r results="hide"}
+j <- 1
+testdel <- list()
+testnamedel <- list()
+for (i in 1:dim(testing)[2])
+  {
+  if (sum(is.na(testing[,i])) == length(testing[,i]))
+    {
+    testdel[j] <- i
+    testnamedel[j] <- colnames(testing)[i]
+    j <- j+1
+    }
+  }
+
+#deleting null values from the test dataset
+for (j in length(testdel):1)
+  {
+    testing[,testdel[[j]]] <- NULL
+  }
+
+#deleting null values from the train dataset
+#we have to run this multiple times in order to have 60 vars!!!! FIX ITITITITI
+
+traindel <- list()
+j <- 1
+for (i in 1:length(training))
+  {
+    if (colnames(training)[i] %in% testnamedel)
+      {
+        traindel[j] <- i
+        j <- j+1
+      }
+  }
+
+for (j in length(traindel):1)
+  {
+    training[,traindel[[j]]] <- NULL
+  }
+
+
+training = transform(training, classe = factor(classe),new_window = factor(new_window), user_name = factor(user_name))
+
+testing = transform(testing,new_window = factor(new_window), user_name = factor(user_name))
+
+training$X <- NULL
+training$num_window <- NULL
+training$raw_timestamp_part_1 <- NULL
+training$raw_timestamp_part_2 <- NULL
+training$cvtd_timestamp <- NULL
+```
+And I also i have deleted the columns which are nor contributing to the predictions, like the number of windows,...
+
+<h2>Developing Prediction Model based on the Gradient Boosting Tree</h2>
+we will use the Boosting Tree prediction algorithm via gbm package in order to predict the test data. we use 10-fold cross validation techniques too.
+
+10 fold cross validation is used to have better accuracy of data and also we have set the interaction depth of the tree at various rates and the shrinkage factor is 0.1
+
+
+```{r}
+
+tGrid <-  expand.grid(interaction.depth = c(1, 5, 9),
+                        n.trees = (1:30)*1,
+                        shrinkage = 0.1)
+
+
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+
+modFit <- train(classe ~ ., data = training,
+                 method = "gbm",
+                 trControl = fitControl,
+                 verbose = FALSE,
+                 tuneGrid =tGrid)
+
+
+modFit
+gbmImp <- varImp(modFit, scale = FALSE)
+plot(gbmImp, top = 20,title="Variable Importance")
+```
+
+<h2>Computing out of sample errors</h2>
+we will estimate the test error rate via different methods and also compute the accuracy of models
+```{r}
+trellis.par.set(caretTheme())
+plot(modFit)
+plot(modFit, metric = "Kappa")
+plot(modFit, metric = "Kappa", plotType = "level",
+     scales = list(x = list(rot = 90)))
+resampleHist(modFit)
+```
+<h2>Evaluating Test data</h2>
+we will use the model in order to predict the test data
+```{r}
+predict(modFit,testing)
+
+```
+When I use the provided data to the automated grading system, the 20 out of 20 response is right and it gives me big confidence in the developed algorithm.
